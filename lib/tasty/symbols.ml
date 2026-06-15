@@ -188,10 +188,14 @@ let find_symbols structure state tracker =
     begin
       match expr.exp_desc with
       | Texp_function { params; body; _ } ->
-        let descriptor_scope = Option.value_exn descriptor_scope in
-        IterState.(
-          state.with_descriptor descriptor_scope
-          @@ fun () -> handle_function params body)
+        (* nameless ppx-generated function bindings have no descriptor_scope;
+           skip rather than Option.value_exn-crash (qcheck/ppxlib .pp.ml) *)
+        (match descriptor_scope with
+         | Some descriptor_scope ->
+           IterState.(
+             state.with_descriptor descriptor_scope
+             @@ fun () -> handle_function params body)
+         | None -> ())
       | _ -> ()
     end;
     (* TODO: I think we can write this without copying *)
