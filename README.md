@@ -12,8 +12,8 @@ This is a **maintained fork** of [`tjdevries/scip-ocaml`](https://github.com/tjd
 whose last upstream commit was 2023-04-26 and which builds only on OCaml 4.14.
 Here it is modernized and kept green:
 
-- **OCaml 5.3.0 mainline** is the default toolchain (was capped at 4.14 by a
-  2022-era opam-monorepo lock). The 4.14 recipe still works for legacy `.cmt`.
+- **OCaml 5.3.0 mainline** is the toolchain (upstream was capped at 4.14 by a
+  2022-era opam-monorepo lock; that lock is gone).
 - **Three crash classes fixed** (ghost `_none_` locations, duplicate/Packed
   wrapper `.cmt`, nameless ppx `Texp_function` bindings) — see *What changed*.
 - **Dead deps replaced**: hand-written Cmdliner 2.x term (the abandoned
@@ -24,38 +24,28 @@ Here it is modernized and kept green:
 
 ## Illustrations
 
-Five runs over four real codebases, each chosen to stress a different axis. All
+Four real codebases on OCaml 5.3.0, each chosen to stress a different axis. All
 index to completion with `index_exit=0` and zero skipped/crashed documents; all
 counts are from the reference `scip` CLI (`scip stats --from index.scip`,
 v0.8.1).
 
-| codebase | what it stresses | switch | docs | occurrences | definitions | `index.scip` |
-|---|---|---|---|---:|---:|---:|
-| [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **scale + ppx** | 4.14.1 | 688 | 287,133 | 99,515 | 28.0 MB |
-| [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **same, latest OCaml** | 5.3.0 | 680 | 245,781 | 57,612 | 21.0 MB |
-| [gwaithimirdain/narya](https://github.com/gwaithimirdain/narya) | **OCaml 5.3.0 native** | 5.3.0 | 238 | 40,962 | 9,439 | 4.93 MB |
-| [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 5.3.0 | 24 | 5,854 | 2,596 | 0.54 MB |
-| [plurigrid/place](https://github.com/plurigrid/place) `cct-reading-group` | **OCaml inside a forester forest** | 5.3.0 | 9 | 67 | 26 | 6.6 KB |
+| codebase | what it stresses | docs | occurrences | definitions | `index.scip` |
+|---|---|---|---:|---:|---:|
+| [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **scale + ppx** | 680 | 245,781 | 57,612 | 21.0 MB |
+| [gwaithimirdain/narya](https://github.com/gwaithimirdain/narya) | **OCaml 5.3.0 native** | 238 | 40,962 | 9,439 | 4.93 MB |
+| [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 24 | 5,854 | 2,596 | 0.54 MB |
+| [plurigrid/place](https://github.com/plurigrid/place) `cct-reading-group` | **OCaml inside a forester forest** | 9 | 67 | 26 | 6.6 KB |
 
-**Rocq** — the theorem prover, 665 `.ml` modules across kernel / pretyping /
-engine / interp / plugins / vernac, heavy ppx. The capstone for *no crash at
-scale*: ~100k definitions traversed without a single ghost-location or
-duplicate-`.cmt` exception (every one of which would have aborted the
-unpatched indexer). Sample symbols resolve cleanly:
+**Rocq** — the theorem prover, built on OCaml 5.3.0 (`./configure
+-native-compiler no` + `dune build @check`): 657 `.ml` modules across kernel /
+pretyping / engine / interp / plugins / vernac, heavy ppx (only the
+`lablgtk3-sourceview3` GUI and `camlzip` bench targets are absent system libs).
+The capstone for *no crash at scale*: 657 documents traversed, ~58k definitions,
+without a single ghost-location or duplicate-`.cmt` exception (every one of
+which would have aborted the unpatched indexer). Sample symbols resolve cleanly:
 `kernel/vmvalues.pstring_cat`, `engine/univSubst.pr_universe_subst`,
 `interp/smartlocate.smart_global_inductive`. Detail in
 [`ROCQ_CAPSTONE.md`](ROCQ_CAPSTONE.md).
-
-Rocq is indexed on **both** toolchains: the 4.14.1 capstone, and the latest
-5.3.0 (`dune build @check` typechecks 657 modules; only `lablgtk3-sourceview3`
-GUI and `camlzip` bench targets are absent system libs — the same scope as the
-4.14 run). The two runs differ measurably: the 5.3.0 codepath records ~42%
-fewer *definitions* (57,612 vs 99,515) while occurrences drop only ~14%. Same
-prover, same day, ~same module set — so the gap is in the indexer, not the
-source: the 5.x Typedtree bridge emits fewer parameter/local definitions across
-OCaml 5.x's n-ary-function (`Texp_function` params + `Tfunction_cases`)
-representation. A real difference to reconcile, surfaced rather than smoothed;
-both runs complete clean.
 
 **Narya** — Michael Shulman's higher-dimensional / parametric dependent type
 checker. It is itself an **OCaml 5.3.0** project, so it is the proof that the
@@ -63,7 +53,7 @@ indexer's compiler-libs match a modern producer's `.cmt` format (the
 version-lock that governs every `.cmt` read): build Narya on the `scip53`
 switch, index with the binary built on the *same* switch, 238 documents clear.
 Exercises 5.x Typedtree idioms (n-ary `Texp_function`, `Tfunction_cases`,
-3-arg `Tpat_var`) that the 4.14 codepaths never see.
+3-arg `Tpat_var`) that pre-5.x trees never carry.
 
 **Stellogen** — Boris Eng's interpreter for *stellar resolution* (term
 unification with polarities). Small (24 documents) but dense: at 108
@@ -95,14 +85,9 @@ cd scip-ocaml
 opam exec --switch scip53 -- dune build  # => _build/default/bin/main.exe (~15 MB)
 ```
 
-The legacy **4.14.1** path (for indexing `.cmt` produced by a 4.14 compiler,
-e.g. Rocq) is unchanged and documented in
-[`ROCQ_CAPSTONE.md`](ROCQ_CAPSTONE.md): build from `scip_ocaml.opam.locked`
-with `menhir.20211230` and `ocaml-protoc` pinned to 2.4.
-
 > **`.cmt` version lock.** The indexer's `compiler-libs` must match the OCaml
 > version that *produced* the target's `.cmt`. Build the indexer and the target
-> on the same switch (5.3.0 ↔ 5.3.0, 4.14.1 ↔ 4.14.1).
+> on the same 5.3.0 switch.
 
 ## Index a target
 
