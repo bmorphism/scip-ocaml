@@ -90,7 +90,10 @@ let make_symbol ~descriptors ~name ~suffix ?disambiguator () =
 ;;
 
 module PatDesc = struct
-  let to_string = function
+  (* The catch-all is exhaustive over [value pattern_desc] on mainline 5.3,
+     so warning 56 (unreachable-case) fires; keep it as a forward-compatible
+     fallback for future compiler-libs constructors rather than dropping it. *)
+  let to_string = function[@warning "-56"]
     | Tpat_any -> "any"
     | Tpat_var _ -> "var"
     | Tpat_alias _ -> "alias"
@@ -109,7 +112,7 @@ end
 (*  TODO: Should use this more i think *)
 let pattern_name pattern =
   match pattern.pat_desc with
-  | Tpat_var (ident, _, _, _, _) -> Some (Ident.name ident)
+  | Tpat_var (ident, _, _) -> Some (Ident.name ident)
   | Tpat_constant _ -> None
   | _ -> None
 ;;
@@ -131,7 +134,7 @@ let find_symbols structure state tracker =
     let descriptors = IterState.(state.get_descriptors ()) in
     let name =
       match pattern.pat_desc with
-      | Tpat_var (ident, _, _, _, _) -> Some (Ident.name ident)
+      | Tpat_var (ident, _, _) -> Some (Ident.name ident)
       | _ -> None
     in
     let symbol =
@@ -159,11 +162,13 @@ let find_symbols structure state tracker =
            SymbolTracker.add_global tracker pat.pat_loc symbol)
     in
     let param_pat fp =
-      (* OCaml 5.2 n-ary functions: each parameter carries either a plain
-         pattern or an optional-argument pattern with a default. *)
+      (* OCaml 5.3 n-ary functions: each parameter carries either a plain
+         pattern or an optional-argument pattern with a default.
+         [Tparam_optional_default] is [pattern * expression] on mainline 5.3
+         (OxCaml carried a 3rd mode field). *)
       match fp.fp_kind with
       | Tparam_pat p -> Some p
-      | Tparam_optional_default (p, _, _) -> Some p
+      | Tparam_optional_default (p, _) -> Some p
     in
     (* TODO: I think this is probably not that good instead, we should probably use something like a new
              iterator, that can go over these and then exists when it's done handling the params *)
@@ -175,19 +180,21 @@ let find_symbols structure state tracker =
       match body with
       | Tfunction_body e ->
         (match e.exp_desc with
-         | Texp_function { params; body; _ } -> handle_function params body
+         | Texp_function (params, body) -> handle_function params body
          | _ -> ())
-      | Tfunction_cases fc ->
-        (* The final argument is bound and matched by these cases. *)
-        List.iter fc.fc_cases ~f:(fun case ->
+      | Tfunction_cases { cases; _ } ->
+        (* The final argument is bound and matched by these cases.
+           5.3 [Tfunction_cases] is an inline record with field [cases]
+           (OxCaml exposed it as [fc] with field [fc_cases]). *)
+        List.iter cases ~f:(fun case ->
           register_param case.c_lhs;
           match case.c_rhs.exp_desc with
-          | Texp_function { params; body; _ } -> handle_function params body
+          | Texp_function (params, body) -> handle_function params body
           | _ -> ())
     in
     begin
       match expr.exp_desc with
-      | Texp_function { params; body; _ } ->
+      | Texp_function (params, body) ->
         (* nameless ppx-generated function bindings have no descriptor_scope;
            skip rather than Option.value_exn-crash (qcheck/ppxlib .pp.ml) *)
         (match descriptor_scope with

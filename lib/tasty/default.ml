@@ -70,7 +70,7 @@ let type_declaration sub td =
 
 let type_kind sub tk =
   (match tk with
-   | Ttype_record lbls | Ttype_record_unboxed_product lbls ->
+   | Ttype_record lbls ->
      List.iter lbls ~f:(fun ld -> sub.label_declaration sub ld)
    | Ttype_variant cds ->
      List.iter cds ~f:(fun cd ->

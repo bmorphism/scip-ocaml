@@ -18,7 +18,7 @@ let payload_to_str (payload : Parsetree.payload) =
       (* | Parsetree.Pstr_eval (expr, _) -> acc ^ Fmt.str "%a" Pprintast.expression expr *)
       | Parsetree.Pstr_eval (expr, _) ->
         (match expr.pexp_desc with
-         | Pexp_constant (Pconst_string (str, _, _)) -> acc ^ str
+         | Pexp_constant { pconst_desc = Pconst_string (str, _, _); _ } -> acc ^ str
          | _ -> acc)
       | _ -> acc)
   | _ -> assert false
@@ -54,7 +54,7 @@ let handle_structure index_lookup document arg_structure =
   let expr sub expr_t =
     let _ =
       match expr_t.exp_desc with
-      | Texp_ident (_, lid, value, _, _, _) ->
+      | Texp_ident (_, lid, value) ->
         IndexSymbols.lookup index_lookup value.val_loc
         |> Option.iter ~f:(function found ->
              let range = ScipRange.of_loc lid.loc in
@@ -67,7 +67,7 @@ let handle_structure index_lookup document arg_structure =
             | _, Kept _ -> ()
             | label, Overridden (lid, _) -> emit_label_reference lid label)
           fields
-      | Texp_field (_, _, lid, label, _, _) -> emit_label_reference lid label
+      | Texp_field (_, lid, label) -> emit_label_reference lid label
       | _ -> ()
     in
     Default.iter.expr sub expr_t
@@ -79,7 +79,7 @@ let handle_structure index_lookup document arg_structure =
          let range = ScipRange.of_loc pat.pat_loc in
          let documentation =
            make_documentation
-           @@ Fmt.str "%a" (Format_doc.compat Printtyp.type_expr) pat.pat_type
+           @@ Fmt.str "%a" Printtyp.type_expr pat.pat_type
          in
          add_occurence ~documentation
          @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
@@ -92,7 +92,7 @@ let handle_structure index_lookup document arg_structure =
          let range = ScipRange.of_loc loc in
          let documentation =
            make_documentation
-           @@ Fmt.str "%a" (Format_doc.compat Printtyp.modtype) module_.mb_expr.mod_type
+           @@ Fmt.str "%a" Printtyp.modtype module_.mb_expr.mod_type
          in
          add_occurence ~documentation
          @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
@@ -126,7 +126,7 @@ let handle_structure index_lookup document arg_structure =
            @@ Fmt.str
                 "%s: %a"
                 (Ident.name label.ld_id)
-                (Format_doc.compat Printtyp.type_expr)
+                Printtyp.type_expr
                 label.ld_type.ctyp_type
          in
          add_occurence ~documentation
