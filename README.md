@@ -24,15 +24,18 @@ Here it is modernized and kept green:
 
 ## Illustrations
 
-Three real codebases, each chosen to stress a different axis. All index to
-completion with `INDEX_EXIT=0` and zero skipped/crashed documents; all counts
-are from the reference `scip` CLI (`scip stats --from index.scip`, v0.8.1).
+Five runs over four real codebases, each chosen to stress a different axis. All
+index to completion with `index_exit=0` and zero skipped/crashed documents; all
+counts are from the reference `scip` CLI (`scip stats --from index.scip`,
+v0.8.1).
 
 | codebase | what it stresses | switch | docs | occurrences | definitions | `index.scip` |
 |---|---|---|---|---:|---:|---:|
 | [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **scale + ppx** | 4.14.1 | 688 | 287,133 | 99,515 | 28.0 MB |
+| [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **same, latest OCaml** | 5.3.0 | 680 | 245,781 | 57,612 | 21.0 MB |
 | [gwaithimirdain/narya](https://github.com/gwaithimirdain/narya) | **OCaml 5.3.0 native** | 5.3.0 | 238 | 40,962 | 9,439 | 4.93 MB |
 | [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 5.3.0 | 24 | 5,854 | 2,596 | 0.54 MB |
+| [plurigrid/place](https://github.com/plurigrid/place) `cct-reading-group` | **OCaml inside a forester forest** | 5.3.0 | 9 | 67 | 26 | 6.6 KB |
 
 **Rocq** — the theorem prover, 665 `.ml` modules across kernel / pretyping /
 engine / interp / plugins / vernac, heavy ppx. The capstone for *no crash at
@@ -42,6 +45,17 @@ unpatched indexer). Sample symbols resolve cleanly:
 `kernel/vmvalues.pstring_cat`, `engine/univSubst.pr_universe_subst`,
 `interp/smartlocate.smart_global_inductive`. Detail in
 [`ROCQ_CAPSTONE.md`](ROCQ_CAPSTONE.md).
+
+Rocq is indexed on **both** toolchains: the 4.14.1 capstone, and the latest
+5.3.0 (`dune build @check` typechecks 657 modules; only `lablgtk3-sourceview3`
+GUI and `camlzip` bench targets are absent system libs — the same scope as the
+4.14 run). The two runs differ measurably: the 5.3.0 codepath records ~42%
+fewer *definitions* (57,612 vs 99,515) while occurrences drop only ~14%. Same
+prover, same day, ~same module set — so the gap is in the indexer, not the
+source: the 5.x Typedtree bridge emits fewer parameter/local definitions across
+OCaml 5.x's n-ary-function (`Texp_function` params + `Tfunction_cases`)
+representation. A real difference to reconcile, surfaced rather than smoothed;
+both runs complete clean.
 
 **Narya** — Michael Shulman's higher-dimensional / parametric dependent type
 checker. It is itself an **OCaml 5.3.0** project, so it is the proof that the
@@ -57,6 +71,19 @@ definitions/document and 243 occurrences/document it is the per-file workout
 for the def/ref walk — `unification.ml`, `lsc_ast.ml`, `sgen_ast.ml`,
 `sgen_eval.ml` all index, including the `polarity = Pos | Neg | Null` core and
 the `exec : marked_constellation -> constellation` evaluator.
+
+**plurigrid/place** — *a forester forest with code in it.* `place` is a
+[forester](https://www.jonmsterling.com/forester/) forest: ~4,000 `.tree`
+files (TeX-like prose, transcluded and hyperlinked into a navigable web),
+`forest.toml`, `forester-mode.el`. Nested inside is a real OCaml dune project,
+`localcharts/cct-reading-group` (an applied-category-theory reading group:
+`lib/Categories.ml`, `Graph.ml`, `Fin_set.ml`). The correspondence is exact and
+is the reason it earns a row: **a SCIP index *is* a forest** — symbols are
+trees, monikers are tree addresses, occurrences are transclusions, and
+`relationships` are the edges. `scip-ocaml` turns the forest's *code* into the
+same kind of addressable, cross-linked graph that forester builds from its
+*prose*. Indexing the dune subtree yields a small but clean forest-of-symbols
+(9 docs / 67 occ / 26 defs).
 
 ## Build (OCaml 5.3.0 — default)
 
