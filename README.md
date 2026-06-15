@@ -147,17 +147,33 @@ Modernization:
 8. **Protobuf** — single `pbrt` 4.x `lib/proto/scip.ml{,i}` replaces the split
    `ocaml-protoc` 2.4 generated modules.
 
+Cross-repo:
+
+9. **External-symbol resolution.** When the location lookup misses on a
+   `Texp_ident` (the value is defined in a dependency, not in-tree), the
+   reference is resolved through its typed `Path.t`: module-qualified paths mint
+   a deterministic `scip-ocaml opam <head-module> . <descriptors>` symbol, so a
+   given dependency value yields the *same* symbol from every index and the
+   forests gain edges through their shared dependencies. Bare lowercase
+   `Pident`s (locals / same-unit values) are dropped, not misminted as fake
+   packages (`lib/tasty/emit.ml`, `symbol_of_path`). See *Honest limitations*
+   for what this does and does not buy.
+
 ## Honest limitations
 
-- **Referentially closed.** A produced index has *zero external surface*: only
-  symbols defined within the indexed tree get `SymbolInformation`; references
-  into dependencies are not resolved to their defining package. This is
-  robustness-complete but **not cross-repo-complete** — no go-to-definition
-  across package boundaries. (`lib/scip.ml:199`, `(* TODO: external symbols *)`.)
-  Symbols are now project-scoped (the package coordinate is derived from
-  `dune-project`, not the old shared `opam . .`), so distinct projects no
-  longer collide — but consuming another project's symbols still requires that
-  external-symbol resolution, which is not yet implemented.
+- **External resolution is approximate, not package-accurate.** References into
+  dependencies are now resolved (see *What changed* #9): a module-qualified
+  reference mints a deterministic symbol from its resolved `Path.t`, so the same
+  dependency value referenced from any index yields the *same* symbol string
+  (narya's `Stdlib#=` ≡ rocq's `Stdlib#=`) and indexes share edges through
+  common deps. **But** the package coordinate is the head module lowercased
+  (`bwd`, `pprint`, `stdlib`), *not* the true opam package, and the descriptor
+  scheme keys on module path, not the file path the dependency's own index would
+  use — so go-to-definition across a real package boundary still needs a
+  resolution table mapping module → defining package + symbol. Bare unqualified
+  references (locals, same-unit values the location lookup missed) are dropped
+  rather than misattributed. Measured on narya: external surface 0 → 621 distinct
+  symbols (stdlib/pprint/core/bwd/asai + narya's own sub-libraries).
 - **No hover docs / find-implementations parity** with tier-1 indexers
   (`scip-typescript`, `scip-go`, `scip-java`).
 - For *editor* navigation within a project, `voodoos/ocaml-index` +

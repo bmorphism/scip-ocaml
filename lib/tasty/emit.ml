@@ -31,6 +31,56 @@ let make_documentation ?plaintext type_info =
   | None -> result
 ;;
 
+(* External (dependency) references. When a referenced value's definition is not
+   in this project's symbol table, it lives in a dependency. Mint a canonical,
+   deterministic symbol from the resolved [Path.t]: the same dependency value
+   referenced from any project yields the same symbol, so indexes share edges
+   through their common dependencies (e.g. every project's [List.map] occurrence
+   points at one [stdlib] symbol). The package coordinate is the dependency's
+   top module, lowercased — so external symbols are package-distinct from the
+   index's own. NOTE: this is not yet identical to the symbol the dependency's
+   OWN scip-ocaml index would mint (that scheme keys on file path, not module
+   path); it makes the external surface visible and cross-index-consistent,
+   which is the precondition for true cross-repo resolution. *)
+let symbol_of_path path =
+  let rec components acc p =
+    match p with
+    | Path.Pident id -> Ident.name id :: acc
+    | Path.Pdot (p, s) -> components (s :: acc) p
+    | Path.Papply (p, _) -> components acc p
+    | _ -> acc
+  in
+  (* a dune-wrapped unit [Foo__Bar] denotes [Foo.Bar]; unwrap on "__" *)
+  let unwrap name =
+    String.substr_replace_all name ~pattern:"__" ~with_:"." |> String.split ~on:'.'
+  in
+  match List.concat_map (components [] path) ~f:unwrap with
+  | [] -> None
+  | head :: _ when String.is_empty head || not (Char.is_uppercase head.[0]) ->
+    (* a bare [Pident] whose head is lowercase is a LOCAL binding (let-bound
+       value or function parameter), not a dependency reference — the resolved
+       path of a genuine external is always module-qualified ([Pdot], head
+       Capitalized per OCaml's lexical law). Minting a package from a local
+       variable name ([x], [xs], [loc]) is pure noise, so drop it: in-tree
+       values are already handled by the location lookup above. *)
+    None
+  | parts ->
+    let pkg_name = String.lowercase (List.hd_exn parts) in
+    let n = List.length parts in
+    let descriptors =
+      List.mapi parts ~f:(fun i name ->
+        let suffix = if i = n - 1 then Term else Type in
+        make_descriptor ~name ~suffix ())
+    in
+    Some
+      (ScipSymbol.to_string
+       @@ Scip_proto.Scip.make_symbol
+            ~scheme:"scip-ocaml"
+            ~package:(make_package ~manager:"opam" ~name:pkg_name ~version:"." ())
+            ~descriptors
+            ())
+;;
+
 let handle_structure index_lookup document arg_structure =
   (* Rest of the stuff *)
   let relative_path = document.relative_path in
@@ -54,12 +104,17 @@ let handle_structure index_lookup document arg_structure =
   let expr sub expr_t =
     let _ =
       match expr_t.exp_desc with
-      | Texp_ident (_, lid, value) ->
-        IndexSymbols.lookup index_lookup value.val_loc
-        |> Option.iter ~f:(function found ->
-             let range = ScipRange.of_loc lid.loc in
-             let symbol = found in
-             add_occurence (make_occurrence ~range ~symbol ()))
+      | Texp_ident (path, lid, value) ->
+        let range = ScipRange.of_loc lid.loc in
+        (match IndexSymbols.lookup index_lookup value.val_loc with
+         | Some symbol ->
+           (* in-tree definition *)
+           add_occurence (make_occurrence ~range ~symbol ())
+         | None ->
+           (* external (dependency) reference — resolve via the path *)
+           (match symbol_of_path path with
+            | Some symbol -> add_occurence (make_occurrence ~range ~symbol ())
+            | None -> ()))
       | Texp_record { fields; extended_expression; _ } ->
         let _ = extended_expression in
         Array.iter
