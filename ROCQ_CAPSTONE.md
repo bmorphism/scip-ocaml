@@ -1,10 +1,11 @@
 # Capstone: indexing Rocq (rocq-prover/rocq) with patched scip-ocaml
 
 Date: 2026-06-15  VM: morphvm_n061jz9z  Switch: scip414 (OCaml 4.14.1)
-Indexer commit: cf1833d (master) + one build-config line (lib/dune: add )
+Indexer commit: cf1833d (master) + one build-config line (lib/dune: add `unix`,
+needed by `Unix.realpath` since bos 0.3.0 stopped re-exporting it)
 
 ## Outcome
-- Target: rocq-prover/rocq (shallow clone), built with  + 
+- Target: rocq-prover/rocq (shallow clone), built with `dune build`
   under switch scip414. 665 .cmt produced (kernel/plugins/vernac/pretyping/engine/...);
   only lablgtk3 GUI binary + camlzip bench tooling don't link (irrelevant to indexing).
 - Indexer ran to completion WITHOUT CRASHING on Rocq's full scale + ppx.
@@ -24,5 +25,6 @@ Indexer commit: cf1833d (master) + one build-config line (lib/dune: add )
 ## Rebuild notes (switch had been partially stripped)
 Reinstalled into scip414: zarith 1.14, angstrom 0.16.1, merlin-lib 4.19-414,
 ppx_deriving_cmdliner (+core deps), fpath, bos, rresult, ocaml-protoc PINNED to 2.4
-(lock pins 2.4; the  single-dash codegen flag requires it). Added 
-to lib/dune (newer bos 0.3.0 no longer re-exports it). camlzip for Rocq's @check.
+(lock pins 2.4; the single-dash codegen flag the bundled proto was generated with
+requires it). Added `unix` to lib/dune (newer bos 0.3.0 no longer re-exports it).
+camlzip for Rocq's @check.

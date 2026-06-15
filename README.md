@@ -1,105 +1,139 @@
-# scip-ocaml - verified build & indexing recipe (fork notes)
+# scip-ocaml
 
-> The only working recipe we found for producing SCIP indexes of real OCaml
-> libraries with tjdevries/scip-ocaml, plus an honest assessment of where it
-> sits next to other languages' indexers. Upstream (last commit 2023-04-26) is
-> an unmaintained proof-of-concept; everything below is what it takes to get
-> green indexes out of it in 2026.
+The OCaml → [SCIP](https://github.com/sourcegraph/scip) indexer, maintained.
 
-## TL;DR
+`scip-ocaml` reads dune-produced typed trees (`.cmt`/`.cmti`, via Merlin's
+`Tasty`) and emits a [SCIP](https://github.com/sourcegraph/scip) index —
+documents, occurrences, `SymbolInformation`, monikers — that the official
+`scip` CLI validates and that Sourcegraph-class tooling consumes. It is the
+only OCaml→SCIP emitter that exists (SCIP reserves language id `OCaml = 41`).
 
-- Indexer: tjdevries/scip-ocaml @ 33e97e6 - the ONLY OCaml->SCIP emitter that exists.
-- Build toolchain: OCaml 4.14.1 opam switch (NOT 5.3.0 - see below).
-- Mechanism: reads dune-produced .cmt/.cmti, two-pass def/ref walk via Merlin (Tasty).
-- Verifier: official scip CLI v0.8.1 (scip stats / scip print).
-- Verified green: stdio, sexplib, alcotest, ppxlib (lib).
-- Partial/blocked: qcheck (core file crashes the indexer).
+This is a **maintained fork** of [`tjdevries/scip-ocaml`](https://github.com/tjdevries/scip-ocaml),
+whose last upstream commit was 2023-04-26 and which builds only on OCaml 4.14.
+Here it is modernized and kept green:
 
-## Is this the best OCaml indexer? (honest answer)
+- **OCaml 5.3.0 mainline** is the default toolchain (was capped at 4.14 by a
+  2022-era opam-monorepo lock). The 4.14 recipe still works for legacy `.cmt`.
+- **Three crash classes fixed** (ghost `_none_` locations, duplicate/Packed
+  wrapper `.cmt`, nameless ppx `Texp_function` bindings) — see *What changed*.
+- **Dead deps replaced**: hand-written Cmdliner 2.x term (the abandoned
+  `ppx_deriving_cmdliner` no longer solves on 5.x); unified `pbrt` 4.x protobuf
+  codegen (was the split `ocaml-protoc` 2.4 `_pb`/`_pp`/`_types` modules).
+- **Validated at scale** on the Rocq prover, the Narya proof assistant, and the
+  Stellogen interpreter — see *Illustrations*.
 
-For emitting SCIP: yes, because it is the only one. SCIP reserves language id
-OCaml=41 in scip.proto, but OCaml does NOT appear on Sourcegraph's recommended
-indexer table at all (unlike Go/TS/Java/C++/Python/Ruby/C#, all green with
-hover + goto-def + find-refs + cross-repo). No release, no Docker image, no CI,
-9 stars, 1 contributor, README still a TODO list.
+## Illustrations
 
-For navigation quality in general: no - voodoos/ocaml-index is better, but it
-does not emit SCIP. It is the official project-wide-occurrences engine (drives
-dune build @ocaml-index, ships with Merlin/OCaml-LSP since OCaml 5.2 / 2024),
-is compiler-accurate, does proper cross-unit shape reduction, and the exact
-failure classes that crash scip-ocaml (ghost _none_ locations, ppx output) are
-tracked/handled on its roadmap. It writes .ocaml-index, not SCIP - not a
-drop-in for a SCIP pipeline (Sourcegraph, scip-io, etc.).
+Three real codebases, each chosen to stress a different axis. All index to
+completion with `INDEX_EXIT=0` and zero skipped/crashed documents; all counts
+are from the reference `scip` CLI (`scip stats --from index.scip`, v0.8.1).
 
-### Generation UX vs other languages
-- scip-typescript / scip-go: one binary, index, no toolchain pinning, CI images. Best-in-class.
-- scip-java: drives Gradle/Maven/sbt/Bazel for you.
-- scip-ocaml: worst UX of the set. You must hand-build the indexer from an
-  opam-monorepo lock that only solves on OCaml 4.14, pin menhir.20211230,
-  dune build each target, delete _build/install (duplicate-cmt crash), and for
-  ppx-heavy repos delete ppx .pp.ml artifacts. No binary release, no CI image.
+| codebase | what it stresses | switch | docs | occurrences | definitions | `index.scip` |
+|---|---|---|---|---:|---:|---:|
+| [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **scale + ppx** | 4.14.1 | 688 | 287,133 | 99,515 | 28.0 MB |
+| [gwaithimirdain/narya](https://github.com/gwaithimirdain/narya) | **OCaml 5.3.0 native** | 5.3.0 | 238 | 40,962 | 9,439 | 4.93 MB |
+| [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 5.3.0 | 24 | 5,854 | 2,596 | 0.54 MB |
 
-If you only need editor navigation, prefer ocaml-index + Merlin/LSP.
-If you must produce a .scip file, this recipe is the path.
+**Rocq** — the theorem prover, 665 `.ml` modules across kernel / pretyping /
+engine / interp / plugins / vernac, heavy ppx. The capstone for *no crash at
+scale*: ~100k definitions traversed without a single ghost-location or
+duplicate-`.cmt` exception (every one of which would have aborted the
+unpatched indexer). Sample symbols resolve cleanly:
+`kernel/vmvalues.pstring_cat`, `engine/univSubst.pr_universe_subst`,
+`interp/smartlocate.smart_global_inductive`. Detail in
+[`ROCQ_CAPSTONE.md`](ROCQ_CAPSTONE.md).
 
-## Reproducible build (OCaml 4.14.1)
+**Narya** — Michael Shulman's higher-dimensional / parametric dependent type
+checker. It is itself an **OCaml 5.3.0** project, so it is the proof that the
+indexer's compiler-libs match a modern producer's `.cmt` format (the
+version-lock that governs every `.cmt` read): build Narya on the `scip53`
+switch, index with the binary built on the *same* switch, 238 documents clear.
+Exercises 5.x Typedtree idioms (n-ary `Texp_function`, `Tfunction_cases`,
+3-arg `Tpat_var`) that the 4.14 codepaths never see.
 
-The bundled scip_ocaml.opam.locked is an opam-monorepo lockfile pinning
-2022-era forks (ppxlib 0.25.1, merlin 4.8-500, ocaml-compiler-libs). These do
-NOT compile on OCaml 5.3.0 (Cmo_format.compunit API break in read_cma.ml;
-ppxlib 'Unknown OCaml version 5.3.0'). Build on 4.14.1:
+**Stellogen** — Boris Eng's interpreter for *stellar resolution* (term
+unification with polarities). Small (24 documents) but dense: at 108
+definitions/document and 243 occurrences/document it is the per-file workout
+for the def/ref walk — `unification.ml`, `lsc_ast.ml`, `sgen_ast.ml`,
+`sgen_eval.ml` all index, including the `polarity = Pos | Neg | Null` core and
+the `exec : marked_constellation -> constellation` evaluator.
 
-    export OPAMROOT=/root/.opam OPAMYES=1 EDITOR=true
-    opam switch create scip414 4.14.1
-    opam install --switch scip414 dune opam-monorepo menhir.20211230
-    # menhir pin REQUIRED: latest menhir (>=20260209) dropped menhirLib.mli,
-    # which the pinned merlin's dune copies.
-    cd scip-ocaml
-    opam exec --switch scip414 -- opam monorepo pull -l scip_ocaml.opam.locked
-    opam exec --switch scip414 -- dune build   # => _build/default/bin/main.exe (~25 MB)
+## Build (OCaml 5.3.0 — default)
 
-## Indexing a target
+```sh
+opam switch create scip53 5.3.0          # or reuse an existing 5.3.0 switch
+opam install --switch scip53 dune base fmt fpath cmdliner bos rresult \
+  merlin-lib pbrt
+cd scip-ocaml
+opam exec --switch scip53 -- dune build  # => _build/default/bin/main.exe (~15 MB)
+```
 
-Build the target with the SAME compiler as the indexer (4.14.1 - .cmt lock).
+The legacy **4.14.1** path (for indexing `.cmt` produced by a 4.14 compiler,
+e.g. Rocq) is unchanged and documented in
+[`ROCQ_CAPSTONE.md`](ROCQ_CAPSTONE.md): build from `scip_ocaml.opam.locked`
+with `menhir.20211230` and `ocaml-protoc` pinned to 2.4.
 
-    cd <target>
-    opam exec --switch scip414 -- dune build          # produce .cmt/.cmti
-    rm -rf _build/install                             # REQUIRED dedup .cmt
-    #   install/ mirrors default/ -> Map.add_exn key already present
-    # ppx-heavy repos: also drop ppx output carrying ghost locations:
-    rm -rf _build/default/test ; find _build -name '*.pp.ml' -delete
-    opam exec --switch scip414 -- /root/scip-ocaml/_build/default/bin/main.exe index . index.scip
-    scip stats --from index.scip                      # verify, official CLI v0.8.1
+> **`.cmt` version lock.** The indexer's `compiler-libs` must match the OCaml
+> version that *produced* the target's `.cmt`. Build the indexer and the target
+> on the same switch (5.3.0 ↔ 5.3.0, 4.14.1 ↔ 4.14.1).
 
-## Verified results (this fork, scip CLI v0.8.1)
+## Index a target
 
-| Target | Ref | Built | docs | occ | defs | index.scip |
-|---|---|---|---|---|---|---|
-| janestreet/stdio | v0.16.0 | yes | 4 | 304 | 168 | 30 KB |
-| janestreet/sexplib | v0.16.0 | yes | 23 | 2,948 | 1,304 | 315 KB |
-| mirage/alcotest | HEAD | yes | 85 | 2,623 | 1,206 | 400 KB |
-| ocaml-ppx/ppxlib | HEAD (lib only) | yes | 150 | 59,082 | 18,024 | 6.98 MB |
-| c-cube/qcheck | partial | partial | 15 | 2,550 | 927 | 298 KB |
+```sh
+cd <target>
+opam exec --switch scip53 -- dune build              # produce .cmt/.cmti
+/path/to/scip-ocaml/_build/default/bin/main.exe index . index.scip
+scip stats --from index.scip                         # verify (official CLI)
+```
 
-ppxlib: _build/default/test holds a *.pp.ml (ppx output) whose .cmt has a
-_none_ ghost location -> Option.value_exn None in Tasty.Symbols.find_symbols.
-Dropping the test tree indexes the entire library.
+`OUTFILE` may be relative (resolved under the project root) or absolute. The
+patched indexer no longer needs the old `rm -rf _build/install` /
+`find -name '*.pp.ml' -delete` workarounds — duplicate, Packed, and
+ghost-location nodes are now skipped, not fatal.
 
-qcheck: src/core/QCheck.ml (a real lib file) emits duplicate _none_/col-(-1)
-ghost-location locals -> SymbolTracker.add_local Map.add_exn crash. Confirmed
-sole blocker (removing only src/core lets the rest index). Upstream bug, no
-fix; ocaml-index handles this node class.
+## What changed (vs upstream `tjdevries/scip-ocaml`)
 
-## Known scip-ocaml limitations (root-caused here)
+Robustness (each was a hard crash upstream; root-caused on Rocq/qcheck/ppxlib):
 
-1. Duplicate .cmt from _build/install mirroring _build/default -> hard crash. Fix: rm -rf _build/install.
-2. Ghost _none_ locations from ppx/synthetic nodes -> add_local / value_exn None crash. No guard upstream. Fix: exclude offending files.
-3. No OCaml 5.x support - locked dep graph caps at 4.14.
-4. No hover docs / cross-repo / find-implementations parity with tier-1 indexers.
+1. **Ghost `_none_` locations** from ppx/synthetic nodes →
+   `SymbolTracker.add_local` guards `loc_ghost` and treats duplicate keys as
+   `` `Duplicate -> () `` instead of `Map.add_exn`-crashing
+   (`lib/tasty/symbols.ml`).
+2. **Nameless ppx `Texp_function` bindings** with no descriptor scope → skipped
+   rather than `Option.value_exn`-crashing (`lib/tasty/symbols.ml`).
+3. **Duplicate / Packed wrapper `.cmt`** (`NAME__.cmt`, `_build/install`
+   mirrors) → `get_symbols`/`of_cmt` return `None` and `IndexSymbols.merge`
+   is last-wins (`Map.set`), instead of `failwith` / `add_exn`
+   (`lib/scip.ml`, `lib/types/IndexSymbols.ml`).
 
-## Publishing this fork
+Modernization:
 
-    gh repo fork tjdevries/scip-ocaml --clone=false   # or create your own repo
-    git remote add fork <your-fork-url>
-    git add README.md && git commit -m 'docs: verified 4.14.1 build + indexing recipe'
-    git push fork master
+4. **OCaml 5.x / 5.3.0 port** — `lib/tasty/default.ml` rewritten as a thin
+   bridge over stock `Tast_iterator`; 5.3 Typedtree deltas (n-ary functions,
+   `Tfunction_cases`, arity changes on `Tpat_var`/`Texp_ident`/`Texp_field`,
+   `Pconst_string`); `Caml.*` → `Stdlib.*`.
+5. **CLI** — hand-written Cmdliner 2.x term replaces the unsatisfiable
+   `[@@deriving cmdliner]` (`bin/main.ml`).
+6. **Protobuf** — single `pbrt` 4.x `lib/proto/scip.ml{,i}` replaces the split
+   `ocaml-protoc` 2.4 generated modules.
+
+## Honest limitations
+
+- **Referentially closed.** A produced index has *zero external surface*: only
+  symbols defined within the indexed tree get `SymbolInformation`; references
+  into dependencies are not resolved to their defining package. This is
+  robustness-complete but **not cross-repo-complete** — no go-to-definition
+  across package boundaries. (`lib/scip.ml:149`, `(* TODO: external symbols *)`.)
+- **No hover docs / find-implementations parity** with tier-1 indexers
+  (`scip-typescript`, `scip-go`, `scip-java`).
+- For *editor* navigation within a project, `voodoos/ocaml-index` +
+  Merlin/OCaml-LSP is compiler-accurate and handles more node classes — but it
+  writes `.ocaml-index`, **not** SCIP. Use `scip-ocaml` when you specifically
+  need a `.scip` file for a SCIP pipeline.
+
+## Credits
+
+Original work and the Tasty design: [tjdevries](https://github.com/tjdevries/scip-ocaml).
+SCIP and the validating CLI: [Sourcegraph](https://github.com/sourcegraph/scip).
+Illustration codebases: Rocq (rocq-prover), Narya (Michael Shulman /
+gwaithimirdain), Stellogen (Boris Eng). License: as upstream.
