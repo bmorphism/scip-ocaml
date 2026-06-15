@@ -1,5 +1,5 @@
 open Base
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 open Scip_ocaml
 module Dir = Bos.OS.Dir
 
@@ -9,7 +9,11 @@ let index project_root outfile =
   Fmt.pr "Indexing project at %s@." (Fpath.to_string project_root);
   let files = Scip.find_cm_files project_root in
   let index = Scip.ScipIndex.index project_root files in
-  let _ = Scip.ScipIndex.serialize index Fpath.(project_root / outfile) in
+  let outpath =
+    let p = Fpath.v outfile in
+    if Fpath.is_abs p then p else Fpath.(project_root // p)
+  in
+  let _ = Scip.ScipIndex.serialize index outpath in
   ()
 ;;
 
@@ -38,11 +42,9 @@ let snapshot project_root outfile snapshot_dir mode =
     in
     let with_docs =
       List.filter_map index.documents ~f:(fun document ->
-        let document =
-          { document with
-            occurrences = List.sort document.occurrences ~compare:compare_occ
-          }
-        in
+        Scip_proto.Scip.document_set_occurrences
+          document
+          (List.sort document.occurrences ~compare:compare_occ);
         let* snapshot = Scip.ScipDocument.read document project_root in
         let snapshot = Scip_snapshot.doc_to_string document snapshot in
         Some (document.relative_path, snapshot))
@@ -90,22 +92,52 @@ let snapshot_dir root mode =
   then (
     Fmt.pr "Snapshot diffed files: %d@." (Map.length diffed);
     Map.iteri diffed ~f:(fun ~key ~data -> Fmt.pr "  %s -> %s@." key data);
-    Caml.exit 1)
+    Stdlib.exit 1)
 ;;
 
-(* NOTE: If i want to print these, then we derive show again *)
 type params =
-  { command : string [@pos 0] [@docv "command"] (** Command for scip-ocaml to run *)
-  ; root : string [@pos 1] [@docv "project_root"] [@default "."]
-      (** Project root to index *)
-  ; outfile : string [@pos 2] [@docv "outfile"] [@default "index.scip"]
-      (** File to save index. *)
-  ; snapshot_dir : string [@docv "snapshot_dir"] [@default "scip-snapshot"]
-      (** folder to save snapshots to *)
-  ; mode : string [@docv "mode"] [@default "diff"]
-      (** Should promote snapshots to newest items *)
+  { command : string
+  ; root : string
+  ; outfile : string
+  ; snapshot_dir : string
+  ; mode : string
   }
-[@@deriving cmdliner]
+
+(* modern Cmdliner 2.x term, hand-written (replaces dead ppx_deriving_cmdliner) *)
+let params_term =
+  let command =
+    Cmdliner.Arg.(
+      required
+        (pos 0 (some string) None
+           (info [] ~docv:"COMMAND" ~doc:"index | snapshot | snapshot-dir")))
+  in
+  let root =
+    Cmdliner.Arg.(
+      value (pos 1 string "." (info [] ~docv:"PROJECT_ROOT" ~doc:"Project root to index")))
+  in
+  let outfile =
+    Cmdliner.Arg.(
+      value (pos 2 string "index.scip" (info [] ~docv:"OUTFILE" ~doc:"File to save index")))
+  in
+  let snapshot_dir =
+    Cmdliner.Arg.(
+      value
+        (opt string "scip-snapshot"
+           (info [ "snapshot-dir" ] ~docv:"DIR" ~doc:"Folder to save snapshots to")))
+  in
+  let mode =
+    Cmdliner.Arg.(
+      value (opt string "diff" (info [ "mode" ] ~docv:"MODE" ~doc:"promote | diff | write")))
+  in
+  Cmdliner.Term.(
+    const (fun command root outfile snapshot_dir mode ->
+      { command; root; outfile; snapshot_dir; mode })
+    $ command
+    $ root
+    $ outfile
+    $ snapshot_dir
+    $ mode)
+;;
 
 let actually_run (params : params) =
   let root =
@@ -133,11 +165,10 @@ let actually_run (params : params) =
 ;;
 
 let main () =
-  let f p = actually_run p in
-  let info = Cmdliner.Cmd.info Caml.Sys.argv.(0) in
-  let term = Cmdliner.Term.(const f $ params_cmdliner_term ()) in
+  let info = Cmdliner.Cmd.info "scip-ocaml" ~doc:"Emit SCIP for OCaml" in
+  let term = Cmdliner.Term.(const actually_run $ params_term) in
   let cmd = Cmdliner.Cmd.v info term in
-  Caml.exit (Cmdliner.Cmd.eval cmd)
+  Stdlib.exit (Cmdliner.Cmd.eval cmd)
 ;;
 
 let () = main ()

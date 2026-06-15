@@ -1,4 +1,4 @@
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 
 type t = descriptor
 

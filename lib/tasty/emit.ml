@@ -7,7 +7,7 @@
 open Asttypes
 open Typedtree
 open Default
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 open Scip_mods
 
 let payload_to_str (payload : Parsetree.payload) =
@@ -34,33 +34,32 @@ let make_documentation ?plaintext type_info =
 let handle_structure index_lookup document arg_structure =
   (* Rest of the stuff *)
   let relative_path = document.relative_path in
-  let _ = Caml.Filename.remove_extension relative_path in
+  let _ = Stdlib.Filename.remove_extension relative_path in
   let document = ref document in
   let add_occurence ?documentation (occ : occurrence) =
-    let symbols =
-      if Int32.(occ.symbol_roles = SymbolRoles.definition)
-      then
-        default_symbol_information ~symbol:occ.symbol ?documentation ()
-        :: !document.symbols
-      else !document.symbols
-    in
-    document := { !document with occurrences = occ :: !document.occurrences; symbols }
+    let d = !document in
+    if Int32.(occ.symbol_roles = SymbolRoles.definition)
+    then
+      document_set_symbols
+        d
+        (make_symbol_information ~symbol:occ.symbol ?documentation () :: d.symbols);
+    document_set_occurrences d (occ :: d.occurrences)
   in
   let emit_label_reference lid (label : Types.label_description) =
     IndexSymbols.lookup index_lookup label.lbl_loc
     |> Option.iter ~f:(fun symbol ->
          let range = ScipRange.of_loc lid.loc in
-         add_occurence @@ default_occurrence ~range ~symbol ())
+         add_occurence @@ make_occurrence ~range ~symbol ())
   in
   let expr sub expr_t =
     let _ =
       match expr_t.exp_desc with
-      | Texp_ident (_, lid, value) ->
+      | Texp_ident (_, lid, value, _, _, _) ->
         IndexSymbols.lookup index_lookup value.val_loc
         |> Option.iter ~f:(function found ->
              let range = ScipRange.of_loc lid.loc in
              let symbol = found in
-             add_occurence (default_occurrence ~range ~symbol ()))
+             add_occurence (make_occurrence ~range ~symbol ()))
       | Texp_record { fields; extended_expression; _ } ->
         let _ = extended_expression in
         Array.iter
@@ -68,7 +67,7 @@ let handle_structure index_lookup document arg_structure =
             | _, Kept _ -> ()
             | label, Overridden (lid, _) -> emit_label_reference lid label)
           fields
-      | Texp_field (_, lid, label) -> emit_label_reference lid label
+      | Texp_field (_, _, lid, label, _, _) -> emit_label_reference lid label
       | _ -> ()
     in
     Default.iter.expr sub expr_t
@@ -79,10 +78,11 @@ let handle_structure index_lookup document arg_structure =
     |> Option.iter ~f:(fun symbol ->
          let range = ScipRange.of_loc pat.pat_loc in
          let documentation =
-           make_documentation @@ Fmt.str "%a" Printtyp.type_expr pat.pat_type
+           make_documentation
+           @@ Fmt.str "%a" (Format_doc.compat Printtyp.type_expr) pat.pat_type
          in
          add_occurence ~documentation
-         @@ default_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
+         @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
     Default.iter.value_binding sub value
   in
   let module_binding sub module_ =
@@ -91,10 +91,11 @@ let handle_structure index_lookup document arg_structure =
     |> Option.iter ~f:(fun symbol ->
          let range = ScipRange.of_loc loc in
          let documentation =
-           make_documentation @@ Fmt.str "%a" Printtyp.modtype module_.mb_expr.mod_type
+           make_documentation
+           @@ Fmt.str "%a" (Format_doc.compat Printtyp.modtype) module_.mb_expr.mod_type
          in
          add_occurence ~documentation
-         @@ default_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
+         @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
     Default.iter.module_binding sub module_
   in
   let type_declaration this decl_t =
@@ -106,7 +107,7 @@ let handle_structure index_lookup document arg_structure =
            make_documentation @@ Fmt.str "%s" (Ident.name decl_t.typ_id)
          in
          add_occurence ~documentation
-         @@ default_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
+         @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
     Default.iter.type_declaration this decl_t
   in
   let label_declaration sub label =
@@ -125,11 +126,11 @@ let handle_structure index_lookup document arg_structure =
            @@ Fmt.str
                 "%s: %a"
                 (Ident.name label.ld_id)
-                Printtyp.type_expr
+                (Format_doc.compat Printtyp.type_expr)
                 label.ld_type.ctyp_type
          in
          add_occurence ~documentation
-         @@ default_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
+         @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
     Default.iter.label_declaration sub label
   in
   let label_description sub (label_desc : Types.label_description) =
@@ -146,7 +147,7 @@ let handle_structure index_lookup document arg_structure =
     |> Option.iter ~f:(fun symbol ->
          let range = ScipRange.of_loc loc in
          add_occurence
-         @@ default_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
+         @@ make_occurrence ~range ~symbol ~symbol_roles:SymbolRoles.definition ());
     Default.iter.case sub case
   in
   let iter =

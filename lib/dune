@@ -4,11 +4,13 @@
   scip_proto
   scip_mods
   tasty
-  ocaml-protoc
+  pbrt
   base
   fmt
   fpath
   bos
+  rresult
+  unix
   merlin-lib.ocaml_parsing
   compiler-libs.common)
  (preprocess (pps ppx_base))
@@ -21,12 +23,10 @@
  (alias update-snapshots)
  (action
   (progn
-   (run dune build -f --root=/home/tjdevries/sourcegraph/scip_ocaml/lib/snapshots/input/single_function)
-   (run scip-ocaml snapshot-dir /home/tjdevries/sourcegraph/scip_ocaml/lib/snapshots/ --mode=promote))))
+   (run scip-ocaml snapshot-dir %{workspace_root}/lib/snapshots/ --mode=promote))))
 
 (rule
  (alias check-snapshots)
  (action
   (progn
-   (run dune build -f --root=/home/tjdevries/sourcegraph/scip_ocaml/lib/snapshots/input/single_function)
-   (run scip-ocaml snapshot-dir /home/tjdevries/sourcegraph/scip_ocaml/lib/snapshots/ --mode=diff))))
+   (run scip-ocaml snapshot-dir %{workspace_root}/lib/snapshots/ --mode=diff))))

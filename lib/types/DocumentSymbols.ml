@@ -6,7 +6,7 @@ type t =
   ; locals : string_to_loc
   }
 
-let init (document : Scip_proto.Scip_types.document) globals locals =
+let init (document : Scip_proto.Scip.document) globals locals =
   { path = document.relative_path; globals; locals }
 ;;
 

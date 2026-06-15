@@ -1,5 +1,5 @@
 open Angstrom
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 
 type t = symbol
 
@@ -54,7 +54,10 @@ let escaped_ident = backtick *> take_while1 (fun c -> Char.(c <> '`')) <* backti
 let ident = choice ~failure_msg:"could not get ident" [ escaped_ident; simple_ident ]
 
 let to_descriptor suffix pattern =
-  map ~f:(fun name -> { name; suffix; disambiguator = "" }) pattern
+  (* Only <method> carries a disambiguator in the SCIP grammar; leaving it
+     absent here keeps the field unset (pbrt 4.1 tracks field presence, so a
+     spurious empty "" would not equal an unset field). *)
+  map ~f:(fun name -> make_descriptor ~name ~suffix ()) pattern
 ;;
 
 (* <namespace> ::= <name> '/' *)
@@ -77,7 +80,7 @@ let method_desc =
   let suffix = Method in
   let* name = ident <* lparen in
   let* disambiguator = take_while ident_char in
-  rparen <* char '.' >>= fun _ -> return { name; suffix; disambiguator }
+  rparen <* char '.' >>= fun _ -> return (make_descriptor ~name ~suffix ~disambiguator ())
 ;;
 
 (* <parameter> ::= '(' <name> ')' *)
@@ -119,9 +122,9 @@ let symbol =
   let* manager = space_escaped true in
   let* name = space_escaped true in
   let* version = space_escaped true in
-  let package = Option.some @@ default_package ~manager ~name ~version () in
+  let package = Option.some @@ make_package ~manager ~name ~version () in
   let* descriptors = many1 parse_descriptor in
-  default_symbol ~scheme ~package ~descriptors () |> Angstrom.return
+  make_symbol ~scheme ?package ~descriptors () |> Angstrom.return
 ;;
 
 (* takes a string, returns a scip symbol *)

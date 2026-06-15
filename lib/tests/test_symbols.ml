@@ -1,7 +1,6 @@
 (* Build with `ocamlbuild -pkg alcotest simple.byte` *)
 
-open Scip_proto.Scip_types
-open Scip_proto
+open Scip_proto.Scip
 open Scip_mods
 
 (* This can let us get a parse tree for this *)
@@ -12,23 +11,35 @@ open Scip_mods
 (*   let equal a b = a = b *)
 (* end *)
 
-let testable_symbol = Alcotest.testable Scip_pp.pp_symbol (fun a b -> a = b)
+(* pbrt 4.1 records track field *presence*, so structural [=] distinguishes an
+   absent field from one explicitly set to its proto3 default (e.g. an empty
+   [disambiguator]). Compare by encoded protobuf bytes instead, which is the
+   intended semantic equality (proto3 omits default-valued fields on the wire). *)
+let symbol_eq a b =
+  let enc s =
+    let e = Pbrt.Encoder.create () in
+    encode_pb_symbol s e;
+    Pbrt.Encoder.to_string e
+  in
+  String.equal (enc a) (enc b)
+;;
+
+let testable_symbol = Alcotest.testable pp_symbol symbol_eq
 
 let test_local_symbol () =
   Alcotest.(check string) "same string" "local 1" (ScipSymbol.new_local 1)
 ;;
 
-let pkg manager name version = default_package ~manager ~name ~version ()
+let pkg manager name version = make_package ~manager ~name ~version ()
 
 let sym scheme manager name version descriptors =
   let package = pkg manager name version in
-  let package = Some package in
-  Scip_types.default_symbol ~scheme ~package ~descriptors ()
+  make_symbol ~scheme ~package ~descriptors ()
 ;;
 
 let test_simple_scheme () =
   let expected =
-    sym "a" "b" "c" "d" [ default_descriptor ~name:"term" ~suffix:Term () ]
+    sym "a" "b" "c" "d" [ make_descriptor ~name:"term" ~suffix:Term () ]
   in
   Alcotest.(check testable_symbol)
     "simple symbol"
@@ -44,9 +55,9 @@ let test_namespaces_symbol () =
       "opam"
       "merlin"
       "14.0"
-      [ default_descriptor ~name:"lib" ~suffix:Namespace ()
-      ; default_descriptor ~name:"Something" ~suffix:Type ()
-      ; default_descriptor ~name:"term" ~suffix:Term ()
+      [ make_descriptor ~name:"lib" ~suffix:Namespace ()
+      ; make_descriptor ~name:"Something" ~suffix:Type ()
+      ; make_descriptor ~name:"term" ~suffix:Term ()
       ]
   in
   Alcotest.(check testable_symbol)

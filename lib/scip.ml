@@ -1,4 +1,4 @@
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 module Dir = Bos.OS.Dir
 
 let ( let+ ) = Option.map
@@ -75,10 +75,11 @@ let find_cm_files (dir : Fpath.t) =
 
    We just reverse it when we make a symbol... maybe that's stupid :) *)
 let make_symbol ~descriptors ~name ~suffix ?disambiguator () =
-  let descriptors = default_descriptor ~name ~suffix ?disambiguator () :: descriptors in
-  default_symbol
+  let descriptors =
+    Scip_proto.Scip.make_descriptor ~name ~suffix ?disambiguator () :: descriptors
+  in
+  Scip_proto.Scip.make_symbol
     ~scheme:"scip-ocaml"
-    ~package:None
     ~descriptors:(List.rev descriptors)
     ()
 ;;
@@ -95,7 +96,8 @@ module ScipDocument = struct
   let handle_signature _ document _ = Some document
 
   (* Helper to make a new document *)
-  let make_document relative_path = default_document ~language:"ocaml" ~relative_path ()
+  let make_document relative_path =
+    Scip_proto.Scip.make_document ~language:"ocaml" ~relative_path ()
 
   let get_symbols cmt_path =
     let info = CmFile.load_cmt cmt_path in
@@ -104,9 +106,8 @@ module ScipDocument = struct
     let document = make_document relative_path in
     match info.cmt_annots with
     | Cmt_format.Implementation tree -> Some (Tasty.Symbols.traverse document tree)
-    | Cmt_format.Implementation _ -> assert false
-    | Cmt_format.Interface _ -> None
-    | _ -> failwith "not a cmti file"
+    (* dune wrapper units (NAME__.cmt) are Packed / Partial — skip, don't crash *)
+    | _ -> None
   ;;
 
   let of_cmt index_lookup cmt_path =
@@ -117,7 +118,8 @@ module ScipDocument = struct
     | Cmt_format.Implementation structure ->
       handle_structure index_lookup document structure
     | Cmt_format.Interface signature -> handle_signature index_lookup document signature
-    | _ -> failwith "not a cmti file"
+    (* dune wrapper units (NAME__.cmt) are Packed / Partial — skip, don't crash *)
+    | _ -> None
   ;;
 end
 
@@ -129,9 +131,9 @@ module ScipIndex = struct
 
   let index root cmt_files =
     (* TODO Can you get the arguments just from Sys.argv or something? *)
-    let tool_info = Some (default_tool_info ~name ~version ~arguments:[] ()) in
+    let tool_info = Some (make_tool_info ~name ~version ~arguments:[] ()) in
     let project_root = "file://" ^ Unix.realpath (Fpath.to_string root) in
-    let metadata = Some (default_metadata ~project_root ~tool_info ()) in
+    let metadata = Some (make_metadata ~project_root ?tool_info ()) in
     (* It may be possible that we don't have to lookup EVERYTHING, but for now it's fine *)
     let index_lookup = Scip_mods.IndexSymbols.init () in
     let index_lookup =
@@ -153,12 +155,12 @@ module ScipIndex = struct
           Fmt.epr "Couldn't load %s" (CmFile.to_string cmt);
           acc)
     in
-    default_index ~metadata ~documents ()
+    make_index ?metadata ~documents ()
   ;;
 
   let serialize index outfile =
     let p_encoder = Pbrt.Encoder.create () in
-    let write_index = Scip_proto.Scip_pb.encode_index index in
+    let write_index = Scip_proto.Scip.encode_pb_index index in
     write_index p_encoder;
     let bytes = Pbrt.Encoder.to_string p_encoder in
     Bos.OS.File.write outfile bytes
@@ -168,7 +170,7 @@ module ScipIndex = struct
     match Bos.OS.File.read infile with
     | Ok contents ->
       let p_decoder = Pbrt.Decoder.of_string contents in
-      Some (Scip_proto.Scip_pb.decode_index p_decoder)
+      Some (Scip_proto.Scip.decode_pb_index p_decoder)
     | _ -> None
   ;;
 end

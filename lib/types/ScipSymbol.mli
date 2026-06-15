@@ -1,4 +1,4 @@
-type t = Scip_proto.Scip_types.symbol
+type t = Scip_proto.Scip.symbol
 
 (* Create a new formatted local string *)
 val new_local : int -> string

@@ -1,4 +1,4 @@
-(lang dune 3.7)
+(lang dune 3.16)
 
 (name scip_ocaml)
 
@@ -25,13 +25,12 @@
    fmt
    fpath
    bos
-   utop
    ocaml-protoc
+   pbrt
    angstrom
    alcotest
    cmdliner
    ppx_base
-   ppx_deriving_cmdliner
    (merlin-lib (>= 4.8)))
  (tags
   (topics "to describe" your project)))

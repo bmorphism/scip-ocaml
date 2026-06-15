@@ -12,18 +12,17 @@ bug-reports: "https://github.com/tjdevries/scip-ocaml/issues"
 depends: [
   "ocaml"
   "ocaml-compiler-libs"
-  "dune" {>= "3.7"}
+  "dune" {>= "3.16"}
   "base"
   "fmt"
   "fpath"
   "bos"
-  "utop"
   "ocaml-protoc"
+  "pbrt"
   "angstrom"
   "alcotest"
   "cmdliner"
   "ppx_base"
-  "ppx_deriving_cmdliner"
   "merlin-lib" {>= "4.8"}
   "odoc" {with-doc}
 ]

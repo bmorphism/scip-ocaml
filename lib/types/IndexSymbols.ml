@@ -12,11 +12,17 @@ let init () =
 ;;
 
 let merge this (doc : DocumentSymbols.t) =
+  (* Locations are not globally unique: compiler/ppx-generated definitions
+     collapse to the ghost [_none_] location, so merging with [add_exn]
+     crashes on real-world (ppx) sources. Last-writer-wins is fine for a
+     location -> symbol lookup table. *)
   let globals =
-    Map.fold doc.globals ~init:this.globals ~f:(fun ~key ~data -> Map.add_exn ~key ~data)
+    Map.fold doc.globals ~init:this.globals ~f:(fun ~key ~data acc ->
+      Map.set acc ~key ~data)
   in
   let locals =
-    Map.fold doc.locals ~init:this.locals ~f:(fun ~key ~data -> Map.add_exn ~key ~data)
+    Map.fold doc.locals ~init:this.locals ~f:(fun ~key ~data acc ->
+      Map.set acc ~key ~data)
   in
   { globals; locals }
 ;;

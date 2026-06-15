@@ -1,4 +1,4 @@
-open Scip_proto.Scip_types
+open Scip_proto.Scip
 
 let to_string (index : index) : string list =
   let metadata = index.metadata |> Option.value_exn in
