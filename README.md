@@ -75,6 +75,10 @@ same kind of addressable, cross-linked graph that forester builds from its
 *prose*. Indexing the dune subtree yields a small but clean forest-of-symbols
 (9 docs / 67 occ / 26 defs).
 
+For what these four indexes reveal when compared — reference density, function-
+vs-value shape, nesting depth, documentation coverage, and the one commonality
+SCIP *cannot* see — see [`COMPARISON.md`](COMPARISON.md).
+
 ## Build (OCaml 5.3.0 — default)
 
 ```sh
