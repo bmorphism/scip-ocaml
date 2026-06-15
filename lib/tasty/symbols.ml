@@ -68,14 +68,29 @@ module IterState = struct
   ;;
 end
 
-let default_package = Some (make_package ~manager:"opam" ~name:"." ~version:"." ())
+(* Project identity carried by every symbol's package coordinate. Set once per
+   index from the target's dune-project (see [Scip.ScipIndex.index]) so monikers
+   are project-scoped. The old value was hardcoded [opam . .], which gave every
+   indexed project the SAME package coordinate — two repos with a file at the
+   same relative path defining the same name would emit byte-identical symbols
+   and silently collide once their indexes were merged. The "." fallback below
+   preserves the old behaviour only when no dune-project name is found. *)
+let project_package =
+  ref (make_package ~manager:"opam" ~name:"." ~version:"." ())
+;;
+
+let set_package ~name ~version =
+  project_package := make_package ~manager:"opam" ~name ~version ()
+;;
+
+let current_package () = Some !project_package
 
 let make_symbol_with_descriptor descriptors descriptor =
   let descriptors = descriptor :: descriptors in
   ScipSymbol.to_string
   @@ Scip_proto.Scip.make_symbol
        ~scheme:"scip-ocaml"
-       ?package:default_package
+       ?package:(current_package ())
        ~descriptors:(List.rev descriptors)
        ()
 ;;

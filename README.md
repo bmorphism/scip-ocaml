@@ -33,7 +33,7 @@ v0.8.1).
 |---|---|---|---:|---:|---:|
 | [rocq-prover/rocq](https://github.com/rocq-prover/rocq) | **scale + ppx** | 680 | 245,781 | 57,612 | 21.0 MB |
 | [gwaithimirdain/narya](https://github.com/gwaithimirdain/narya) | **OCaml 5.3.0 native** | 238 | 40,962 | 9,439 | 4.93 MB |
-| [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 24 | 5,854 | 2,596 | 0.54 MB |
+| [engboris/stellogen](https://github.com/engboris/stellogen) | **full def/ref walk, small** | 24 | 4,720 | 1,953 | 0.50 MB |
 | [plurigrid/place](https://github.com/plurigrid/place) `cct-reading-group` | **OCaml inside a forester forest** | 9 | 67 | 26 | 6.6 KB |
 
 **Rocq** — the theorem prover, built on OCaml 5.3.0 (`./configure
@@ -56,8 +56,8 @@ Exercises 5.x Typedtree idioms (n-ary `Texp_function`, `Tfunction_cases`,
 3-arg `Tpat_var`) that pre-5.x trees never carry.
 
 **Stellogen** — Boris Eng's interpreter for *stellar resolution* (term
-unification with polarities). Small (24 documents) but dense: at 108
-definitions/document and 243 occurrences/document it is the per-file workout
+unification with polarities). Small (24 documents) but dense: at ~81
+definitions/document and ~197 occurrences/document it is the per-file workout
 for the def/ref walk — `unification.ml`, `lsc_ast.ml`, `sgen_ast.ml`,
 `sgen_eval.ml` all index, including the `polarity = Pos | Neg | Null` core and
 the `exec : marked_constellation -> constellation` evaluator.
@@ -117,16 +117,30 @@ Robustness (each was a hard crash upstream; root-caused on Rocq/qcheck/ppxlib):
    mirrors) → `get_symbols`/`of_cmt` return `None` and `IndexSymbols.merge`
    is last-wins (`Map.set`), instead of `failwith` / `add_exn`
    (`lib/scip.ml`, `lib/types/IndexSymbols.ml`).
+4. **Malformed / version-mismatched `.cmt`** (a stale artifact from another
+   switch left in `_build`) → `Cmt_format.read_cmt` raises `Cmi_format.Error`;
+   `CmFile.load_cmt` now catches it and skips the file rather than aborting the
+   whole index (`lib/scip.ml`).
+
+Symbol identity:
+
+5. **Project-scoped package coordinate.** Symbols were minted with a hardcoded
+   package `opam . .`, giving *every* indexed project the same coordinate —
+   two repos with a file at the same relative path defining the same name emit
+   byte-identical symbols and collide when indexes are merged. The package
+   `name`/`version` are now derived from the target's `dune-project`
+   (`(name …)`, `(version …)`), e.g. `scip-ocaml opam narya .`,
+   `scip-ocaml opam rocq-prover dev` (`lib/scip.ml`, `lib/tasty/symbols.ml`).
 
 Modernization:
 
-4. **OCaml 5.x / 5.3.0 port** — `lib/tasty/default.ml` rewritten as a thin
+6. **OCaml 5.x / 5.3.0 port** — `lib/tasty/default.ml` rewritten as a thin
    bridge over stock `Tast_iterator`; 5.3 Typedtree deltas (n-ary functions,
    `Tfunction_cases`, arity changes on `Tpat_var`/`Texp_ident`/`Texp_field`,
    `Pconst_string`); `Caml.*` → `Stdlib.*`.
-5. **CLI** — hand-written Cmdliner 2.x term replaces the unsatisfiable
+7. **CLI** — hand-written Cmdliner 2.x term replaces the unsatisfiable
    `[@@deriving cmdliner]` (`bin/main.ml`).
-6. **Protobuf** — single `pbrt` 4.x `lib/proto/scip.ml{,i}` replaces the split
+8. **Protobuf** — single `pbrt` 4.x `lib/proto/scip.ml{,i}` replaces the split
    `ocaml-protoc` 2.4 generated modules.
 
 ## Honest limitations
@@ -135,7 +149,11 @@ Modernization:
   symbols defined within the indexed tree get `SymbolInformation`; references
   into dependencies are not resolved to their defining package. This is
   robustness-complete but **not cross-repo-complete** — no go-to-definition
-  across package boundaries. (`lib/scip.ml:149`, `(* TODO: external symbols *)`.)
+  across package boundaries. (`lib/scip.ml:199`, `(* TODO: external symbols *)`.)
+  Symbols are now project-scoped (the package coordinate is derived from
+  `dune-project`, not the old shared `opam . .`), so distinct projects no
+  longer collide — but consuming another project's symbols still requires that
+  external-symbol resolution, which is not yet implemented.
 - **No hover docs / find-implementations parity** with tier-1 indexers
   (`scip-typescript`, `scip-go`, `scip-java`).
 - For *editor* navigation within a project, `voodoos/ocaml-index` +

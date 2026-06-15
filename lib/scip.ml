@@ -21,7 +21,14 @@ module CmFile = struct
     | Cmti s -> Fpath.to_string s
   ;;
 
-  let load_cmt t = Cmt_format.read_cmt @@ to_string t
+  (* [Cmt_format.read_cmt] raises [Cmi_format.Error]/[Cmt_format.Error] on a
+     truncated, corrupt, or version-mismatched .cmt (e.g. a stale artifact from
+     another switch left in _build). Skip such files instead of aborting the
+     whole index — same skip-don't-crash policy as the Packed/ghost cases. *)
+  let load_cmt t =
+    try Some (Cmt_format.read_cmt @@ to_string t) with
+    | Cmi_format.Error _ | Cmt_format.Error _ -> None
+  ;;
 end
 
 module StringMap = Map.M (String)
@@ -100,7 +107,7 @@ module ScipDocument = struct
     Scip_proto.Scip.make_document ~language:"ocaml" ~relative_path ()
 
   let get_symbols cmt_path =
-    let info = CmFile.load_cmt cmt_path in
+    let* info = CmFile.load_cmt cmt_path in
     (* TODO: Need to merge all the globals together *)
     let* relative_path = info.cmt_sourcefile in
     let document = make_document relative_path in
@@ -111,7 +118,7 @@ module ScipDocument = struct
   ;;
 
   let of_cmt index_lookup cmt_path =
-    let info = CmFile.load_cmt cmt_path in
+    let* info = CmFile.load_cmt cmt_path in
     let* relative_path = info.cmt_sourcefile in
     let document = make_document relative_path in
     match info.cmt_annots with
@@ -123,6 +130,27 @@ module ScipDocument = struct
   ;;
 end
 
+(* Pull a top-level [(field VALUE)] out of a dune-project's text. Deliberately
+   a lexical scan rather than a full sexp parse: we only want the project [name]
+   and (if present) [version] to coordinate symbols. *)
+let dune_field content field =
+  let needle = "(" ^ field ^ " " in
+  match String.substr_index content ~pattern:needle with
+  | None -> None
+  | Some i ->
+    let rest = String.subo content ~pos:(i + String.length needle) in
+    let rest = String.lstrip rest in
+    let v =
+      match
+        String.lfindi rest ~f:(fun _ c ->
+          Char.is_whitespace c || Char.equal c ')')
+      with
+      | Some n -> String.prefix rest n
+      | None -> rest
+    in
+    if String.is_empty v then None else Some v
+;;
+
 module ScipIndex = struct
   type t = index
 
@@ -132,8 +160,30 @@ module ScipIndex = struct
   let index root cmt_files =
     (* TODO Can you get the arguments just from Sys.argv or something? *)
     let tool_info = Some (make_tool_info ~name ~version ~arguments:[] ()) in
-    let project_root = "file://" ^ Unix.realpath (Fpath.to_string root) in
+    let real_root = Unix.realpath (Fpath.to_string root) in
+    let project_root = "file://" ^ real_root in
     let metadata = Some (make_metadata ~project_root ?tool_info ()) in
+    (* Coordinate every symbol's package by this project's identity (from the
+       dune-project), instead of the legacy hardcoded [opam . .]. Must run
+       before the symbol passes below. *)
+    let () =
+      let content =
+        match Bos.OS.File.read Fpath.(root / "dune-project") with
+        | Ok c -> c
+        | _ -> ""
+      in
+      let pkg_name =
+        match dune_field content "name" with
+        | Some n -> n
+        | None -> Stdlib.Filename.basename real_root
+      in
+      let pkg_version =
+        match dune_field content "version" with
+        | Some v -> v
+        | None -> "."
+      in
+      Tasty.Symbols.set_package ~name:pkg_name ~version:pkg_version
+    in
     (* It may be possible that we don't have to lookup EVERYTHING, but for now it's fine *)
     let index_lookup = Scip_mods.IndexSymbols.init () in
     let index_lookup =

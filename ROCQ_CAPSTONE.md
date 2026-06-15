@@ -35,6 +35,8 @@ resolve — absent system libs, irrelevant to indexing.
 - `lib/dune` carries `unix` explicitly (`Unix.realpath`; bos 0.3.0 no longer
   re-exports it).
 - The indexer ran to completion on Rocq's full scale + ppx without a single
-  ghost-location, duplicate-`.cmt`, or nameless-`Texp_function` exception —
-  the three crash classes fixed in this fork, each of which aborted the
-  unpatched indexer.
+  ghost-location, duplicate-`.cmt`, malformed-`.cmt`, or nameless-`Texp_function`
+  exception — the four crash classes fixed in this fork, each of which aborted
+  the unpatched indexer.
+- Symbols are project-scoped: Rocq's carry `scip-ocaml opam rocq-prover dev`
+  (name + version read from its `dune-project`), not the old shared `opam . .`.
